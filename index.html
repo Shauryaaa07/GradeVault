@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>GradeVault Pro</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Firebase (needed for Google login) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial;
+      color: white;
+      background: linear-gradient(270deg, #0f172a, #1e293b, #020617);
+      background-size: 600% 600%;
+      animation: bg 15s ease infinite;
+    }
+
+    @keyframes bg {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      padding: 15px;
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(10px);
+    }
+
+    .logo { font-weight: bold; }
+
+    .btn {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #6366f1, #22c55e);
+      color: white;
+      cursor: pointer;
+    }
+
+    #login, #home, #dashboard {
+      display: none;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .card {
+      max-width: 350px;
+      margin: auto;
+      padding: 20px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(10px);
+    }
+
+    input, select {
+      width: 100%;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+    }
+
+    table {
+      width: 100%;
+      margin-top: 20px;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .dropdown {
+      position: relative;
+      display: inline-block;
+    }
+
+    .dropdown-content {
+      display: none;
+      position: absolute;
+      right: 0;
+      background: #111;
+      border-radius: 8px;
+    }
+
+    .dropdown:hover .dropdown-content {
+      display: block;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media(max-width:768px){
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="card">
+    <h2>GradeVault 🔐</h2>
+    <input id="name" placeholder="Name">
+    <input id="email" placeholder="Gmail">
+    <select id="school">
+      <option>Elementary</option>
+      <option>Middle</option>
+      <option>High</option>
+    </select>
+    <button class="btn" onclick="login()">Login</button>
+    <button class="btn" onclick="googleLogin()">Sign in with Google</button>
+  </div>
+</div>
+
+<!-- HOME -->
+<div id="home">
+  <h1 id="welcome"></h1>
+  <p>Your modern grade tracker</p>
+  <button class="btn" onclick="goDashboard()">Enter Dashboard</button>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+
+  <div class="nav">
+    <div class="logo">📘 GradeVault</div>
+
+    <div>
+      <span id="userInfo"></span>
+
+      <div class="dropdown">
+        <button class="btn">👤</button>
+        <div class="dropdown-content">
+          <button class="btn" onclick="logout()">Logout</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <select id="classSelect" onchange="switchClass()"></select>
+    <button class="btn" onclick="addClass()">+ Class</button>
+  </div>
+
+  <div class="grid">
+    <div>
+      <input id="aName" placeholder="Assignment">
+      <input id="aScore" type="number" placeholder="Score">
+      <input id="aTotal" type="number" placeholder="Total">
+      <button class="btn" onclick="addAssignment()">Add</button>
+
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Score</th><th>Total</th><th>%</th></tr>
+        </thead>
+        <tbody id="table"></tbody>
+      </table>
+    </div>
+
+    <div>
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let user;
+let classes = {};
+let currentClass = "Default";
+let chart;
+
+// ---------- LOGIN ----------
+function login() {
+  user = {
+    name: document.getElementById("name").value,
+    email: document.getElementById("email").value,
+    school: document.getElementById("school").value
+  };
+
+  localStorage.setItem("user", JSON.stringify(user));
+  showHome();
+}
+
+// ---------- GOOGLE LOGIN (REAL FIREBASE HOOK) ----------
+function googleLogin() {
+  alert("Firebase not configured yet. Add your Firebase config to enable Google login.");
+}
+
+// ---------- NAV FLOW ----------
+function showHome() {
+  document.getElementById("login").style.display = "none";
+  document.getElementById("home").style.display = "block";
+  document.getElementById("welcome").innerText = "Welcome " + user.name;
+}
+
+function goDashboard() {
+  document.getElementById("home").style.display = "none";
+  document.getElementById("dashboard").style.display = "block";
+
+  document.getElementById("userInfo").innerText =
+    user.name + " • " + user.school;
+
+  loadClasses();
+}
+
+// ---------- CLASSES ----------
+function addClass() {
+  let name = prompt("Class name:");
+  if (!name) return;
+  classes[name] = [];
+  save();
+  loadClasses();
+}
+
+function loadClasses() {
+  classes = JSON.parse(localStorage.getItem("classes") || "{}");
+
+  let select = document.getElementById("classSelect");
+  select.innerHTML = "";
+
+  for (let c in classes) {
+    let opt = document.createElement("option");
+    opt.value = c;
+    opt.innerText = c;
+    select.appendChild(opt);
+  }
+
+  if (!classes["Default"]) classes["Default"] = [];
+  select.value = "Default";
+  currentClass = "Default";
+
+  render();
+}
+
+function switchClass() {
+  currentClass = document.getElementById("classSelect").value;
+  render();
+}
+
+// ---------- ASSIGNMENTS ----------
+function addAssignment() {
+  classes[currentClass].push({
+    name: aName.value,
+    score: +aScore.value,
+    total: +aTotal.value
+  });
+
+  save();
+  render();
+}
+
+function render() {
+  let table = document.getElementById("table");
+  table.innerHTML = "";
+
+  let data = classes[currentClass];
+
+  data.forEach(a => {
+    let percent = (a.score / a.total) * 100;
+
+    table.innerHTML += `
+      <tr>
+        <td>${a.name}</td>
+        <td>${a.score}</td>
+        <td>${a.total}</td>
+        <td>${percent.toFixed(1)}%</td>
+      </tr>
+    `;
+  });
+
+  updateChart(data);
+}
+
+// ---------- CHART ----------
+function updateChart(data) {
+  let labels = data.map(a => a.name);
+  let values = data.map(a => (a.score / a.total) * 100);
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(document.getElementById("chart"), {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [{ data: values }]
+    }
+  });
+}
+
+// ---------- SAVE ----------
+function save() {
+  localStorage.setItem("classes", JSON.stringify(classes));
+}
+
+// ---------- LOGOUT ----------
+function logout() {
+  localStorage.clear();
+  location.reload();
+}
+
+// ---------- INIT ----------
+window.onload = () => {
+  user = JSON.parse(localStorage.getItem("user"));
+
+  if (user) {
+    showHome();
+  } else {
+    document.getElementById("login").style.display = "block";
+  }
+};
+</script>
+
+</body>
+</html>
